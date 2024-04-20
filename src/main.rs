@@ -6,12 +6,12 @@ use std::io::{prelude::*, BufReader};
 use std::io;
 use std::fs::File;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum Instruction {
-    PointerIncrement,
-    PointerDecrement,
-    DataIncrement,
-    DataDecrement,
+    PointerIncrement(u8),
+    PointerDecrement(u8),
+    DataIncrement(u8),
+    DataDecrement(u8),
     Input,
     Output,
     JumpForward(usize),
@@ -23,10 +23,10 @@ use Instruction::*;
 impl Instruction {
     fn from_char(c: char) -> Option<Instruction> {
         match c {
-            '>' => Some(PointerIncrement),
-            '<' => Some(PointerDecrement),
-            '-' => Some(DataDecrement),
-            '+' => Some(DataIncrement),
+            '>' => Some(PointerIncrement(1)),
+            '<' => Some(PointerDecrement(1)),
+            '-' => Some(DataDecrement(1)),
+            '+' => Some(DataIncrement(1)),
             '.' => Some(Output),
             ',' => Some(Input),
             '[' => Some(JumpForward(0)),
@@ -57,6 +57,25 @@ impl Instruction {
             // println!("matching [] {forward}=>{backward}");
         }
     }
+
+    fn compress_instructions(instructions: &Vec<Instruction>) -> Vec<Instruction> {
+        let mut compressed_instructions: Vec<Instruction> = vec![instructions[0]];
+        for i in 1..instructions.len() {
+            let top = compressed_instructions.len() - 1;
+            match (compressed_instructions[top], instructions[i]) {
+                (PointerIncrement(n), PointerIncrement(1)) => 
+                    compressed_instructions[top] = PointerIncrement(n.overflowing_add(1).0),
+                (PointerDecrement(n), PointerDecrement(1)) => 
+                    compressed_instructions[top] = PointerDecrement(n.overflowing_add(1).0),
+                (DataIncrement(n), DataIncrement(1)) => 
+                    compressed_instructions[top] = DataIncrement(n.overflowing_add(1).0),
+                (DataDecrement(n), DataDecrement(1)) => 
+                    compressed_instructions[top] = DataDecrement(n.overflowing_add(1).0),
+                (_, instruction) => compressed_instructions.push(instruction),
+            }
+        }
+        compressed_instructions
+    }
 } 
 
 
@@ -72,9 +91,10 @@ struct Args {
 fn instructions_from_file(filename: impl AsRef<Path>) -> Vec<Instruction> {
     let file = File::open(filename).expect("no such file");
     let buf = BufReader::new(file);
-    let mut instructions: Vec<Instruction> = buf.lines().flat_map(|l| l.unwrap().chars().collect::<Vec<_>>())
+    let instructions: Vec<Instruction> = buf.lines().flat_map(|l| l.unwrap().chars().collect::<Vec<_>>())
         .map(Instruction::from_char)
         .filter_map(|f| f).collect();
+    let mut instructions = Instruction::compress_instructions(&instructions);
     Instruction::link_jumps(&mut instructions);
     instructions
 }
@@ -129,14 +149,25 @@ impl Memory {
         }
     }
 
-    fn add(&mut self, index: isize, amount: i8) {
+    fn add(&mut self, index: isize, amount: u8) {
         self.allocate(index);
         if index >= 0 {
             let forward_index: usize = index as usize;
-            self.forward[forward_index] = self.forward[forward_index].overflowing_add_signed(amount).0;
+            self.forward[forward_index] = self.forward[forward_index].overflowing_add(amount).0;
         } else {
             let rev_index: usize = (-index-1).try_into().unwrap();
-            self.backward[rev_index] = self.backward[rev_index].overflowing_add_signed(amount).0;
+            self.backward[rev_index] = self.backward[rev_index].overflowing_add(amount).0;
+        }
+    }
+    
+    fn sub(&mut self, index: isize, amount: u8) {
+        self.allocate(index);
+        if index >= 0 {
+            let forward_index: usize = index as usize;
+            self.forward[forward_index] = self.forward[forward_index].overflowing_sub(amount).0;
+        } else {
+            let rev_index: usize = (-index-1).try_into().unwrap();
+            self.backward[rev_index] = self.backward[rev_index].overflowing_sub(amount).0;
         }
     }
 }
@@ -155,16 +186,17 @@ fn main() {
     let mut memory = Memory::new();
     
     // Initialise program and stack "pointers"
-    let mut pc = 0;
-    let mut sp = 0;
+    let mut pc: usize = 0;
+    let mut sp: isize = 0;
 
     // Run Program
     loop {
+        // print!("{pc}:{:?}\n", program[pc]);
         match program[pc] {
-            PointerIncrement => { sp += 1 },
-            PointerDecrement => { sp -= 1 },
-            DataIncrement => { memory.add(sp, 1) },
-            DataDecrement => { memory.add(sp, -1) },
+            PointerIncrement(n) => { sp += n as isize },
+            PointerDecrement(n) => { sp -= n as isize },
+            DataIncrement(n) => { memory.add(sp, n) },
+            DataDecrement(n) => { memory.sub(sp, n) },
             Input => { 
                 let input = read_input();
                 memory.set(sp, input)
