@@ -9,6 +9,12 @@ This project was built as a learning experience with interpreters. The implement
 - Repeating instructions (such as Increment, Increment) can be combined to instead a Add u8 instruction.
 - Pushing new values when we reach an out of bound memory is less efficient than using the `Vec::resize` method. Experimenting adding a single push after a resize slows it down, we can hypothesise that this decreased performance is due to the dynamic scaling of the vector.
 
+## Usage
+This interpreter can run through cargo, or through the compiled binary
+```sh
+$ cargo run -r programs/mandelbrot.b
+```
+
 ## Performance
 We can stress test the interpreter using a Mandlebrot set generator brainfuck program written by [Erik Bosman](https://github.com/erikdubbelboer/brainfuck-jit/blob/master/mandelbrot.bf). These times are the average of three runs on my own machine, and serve only to compare different implementations These times are the average of three runs on my own machine, and serve only to compare different implementations. Most implementations (unless stated otherwise) were developed by [pablojorge](https://github.com/pablojorge/brainfuck). By using Rust, we far outperform the python implementation, however we do not match Pablo's implementation. The main difference (apart from better written code, and a fixed sized buffer) is the compression of indentical commands, so instead of `+++` incrementing a bytes three times, we can simply add 3 to the byte. We add this optimisation, which halves our runtime. Using `Vec::resize` instead of `push`ing values one by one saved an additional 2 seconds in release.
 
