@@ -113,16 +113,12 @@ impl Memory {
         if index >= 0 {
             let forward_index: usize = index as usize;
             if forward_index >= self.forward.len() {
-                for _ in 0..=forward_index-self.forward.len() {
-                    self.forward.push(0);
-                }
+                self.forward.resize(forward_index+1,0);
             }
         } else {
             let rev_index: usize = (-index-1).try_into().unwrap();
             if rev_index >= self.forward.len() {
-                for _ in 0..=rev_index-self.forward.len() {
-                    self.backward.push(0);
-                }
+                self.backward.resize(rev_index+1,0);
             }
         }
     }
