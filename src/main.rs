@@ -1,5 +1,4 @@
 use clap::Parser;
-use text_io::read;
 
 use std::path::Path;
 
@@ -15,8 +14,8 @@ enum Instruction {
     DataDecrement,
     Input,
     Output,
-    JumpForward,
-    JumpBackward,
+    JumpForward(usize),
+    JumpBackward(usize),
 }
 
 use Instruction::*;
@@ -30,9 +29,32 @@ impl Instruction {
             '+' => Some(DataIncrement),
             '.' => Some(Output),
             ',' => Some(Input),
-            '[' => Some(JumpForward),
-            ']' => Some(JumpBackward),
+            '[' => Some(JumpForward(0)),
+            ']' => Some(JumpBackward(0)),
             _ => None,
+        }
+    }
+
+    fn link_jumps(instructions: &mut Vec<Instruction>) {
+        let mut forward_stack = vec![];
+        let mut links = vec![];
+        for (pc, instruction) in instructions.iter().enumerate() {
+            match instruction {
+                JumpForward(_) => forward_stack.push(pc),
+                JumpBackward(_) => {
+                    let last_forward = forward_stack.pop().expect("Unmatched []!");
+                    links.push((last_forward, pc));
+                },
+                _ => (),
+            }
+        }
+        if forward_stack.len() > 0 {
+            panic!("Unmatched []!")
+        }
+        for (forward, backward) in links {
+            instructions[forward] = JumpForward(backward-forward);
+            instructions[backward] = JumpBackward(backward-forward);
+            // println!("matching [] {forward}=>{backward}");
         }
     }
 } 
@@ -50,9 +72,11 @@ struct Args {
 fn instructions_from_file(filename: impl AsRef<Path>) -> Vec<Instruction> {
     let file = File::open(filename).expect("no such file");
     let buf = BufReader::new(file);
-    buf.lines().flat_map(|l| l.unwrap().chars().collect::<Vec<_>>())
+    let mut instructions: Vec<Instruction> = buf.lines().flat_map(|l| l.unwrap().chars().collect::<Vec<_>>())
         .map(Instruction::from_char)
-        .filter_map(|f| f).collect() 
+        .filter_map(|f| f).collect();
+    Instruction::link_jumps(&mut instructions);
+    instructions
 }
 
 struct Memory {
@@ -118,14 +142,6 @@ impl Memory {
 }
 
 fn read_input() -> u8 {
-                // let input: String = read!(); 
-                // let ascii: u8 = input.chars().next().unwrap() as u8;
-    // let mut out = 0;
-    // for i in io::stdin().bytes() {
-    //     out = i.unwrap().clone();
-    //     println!("read byte {}", out);
-    // }
-    // out
     io::stdin().bytes().next().unwrap().unwrap()
 }
 
@@ -133,15 +149,16 @@ fn main() {
     // Read in Program File
     let args = Args::parse();
     let path = Path::new(&args.path).canonicalize().unwrap();
-
     let program = instructions_from_file(path); 
-    // Initialise Memory
-    
-    let mut memory = Memory::new();
 
+    // Initialise Memory
+    let mut memory = Memory::new();
+    
+    // Initialise program and stack "pointers"
     let mut pc = 0;
     let mut sp = 0;
 
+    // Run Program
     loop {
         match program[pc] {
             PointerIncrement => { sp += 1 },
@@ -153,50 +170,12 @@ fn main() {
                 memory.set(sp, input)
             },
             Output => { print!("{}",char::from(memory.get(sp))) },
-            JumpForward => {
-                if memory.get(sp) == 0 {
-                    let mut depth: isize = -1;
-                    loop {
-                        match program[pc] {
-                            JumpForward => depth += 1,
-                            JumpBackward => {
-                                if depth ==0 { break; }
-                                else {depth -= 1}
-                            },
-                            _ => (),
-                        }
-                        pc += 1;
-                    }
-                }
-
-            },
-            JumpBackward => { 
-                if memory.get(sp) != 0 {
-                    let mut depth: isize = -1;
-                    loop {
-                        match program[pc] {
-                            JumpBackward => depth += 1,
-                            JumpForward => {
-                                if depth ==0 { break; }
-                                else {depth -= 1}
-                            },
-                            _ => (),
-                        }
-                        pc -= 1;
-                    }
-                }
-
-
-            },
+            JumpForward(amount) => if memory.get(sp) == 0 { pc += amount },
+            JumpBackward(amount) => if memory.get(sp) != 0 { pc -= amount },
         };
         pc += 1;
         if pc >= program.len() {
             break;
         }
     }
-        
-
-    // Loop until EOF
-    //    Skip unwanted
-    //    Handle valid characters
 }
